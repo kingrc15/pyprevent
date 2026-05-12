@@ -18,16 +18,6 @@ def _mmol_conversion(cholesterol_mgdl: float) -> float:
     return 0.02586 * cholesterol_mgdl
 
 
-def _adjust_uacr(uacr: float) -> float:
-    if pd.isna(uacr):
-        return np.nan
-    if uacr >= 0.1:
-        return float(uacr)
-    if 0 <= uacr < 0.1:
-        return 0.1
-    return np.nan
-
-
 def _sdicat(sdi: float) -> float:
     if pd.isna(sdi):
         return np.nan
