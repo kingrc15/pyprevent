@@ -1,4 +1,8 @@
-# pyprevent
+# PyPrevent
+
+[![tests](https://github.com/kingrc15/pyprevent/actions/workflows/test.yml/badge.svg)](https://github.com/kingrc15/pyprevent/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 
 A pure-Python, pandas-friendly implementation of the **American Heart
 Association (AHA) PREVENT™ (Predicting Risk of CVD EVENTs)** 10-year risk
@@ -76,24 +80,28 @@ were 0.794 (women) and 0.757 (men).<sup>[1,2]</sup>
 
 ## Installation
 
-`pyprevent` is a single Python module with two runtime dependencies:
-
 ```bash
-pip install numpy pandas
-```
-
-Then either:
-
-```bash
-# Option A: clone and import locally
 git clone https://github.com/kingrc15/pyprevent.git
 cd pyprevent
-python -c "from prevent import compute_prevent10; print('ok')"
+pip install .          # or: pip install -e .[dev]   for development
 ```
 
-or copy `prevent.py` into your project.
+For development (running the test suite):
 
-Supported Python versions: **3.9+** (uses `from __future__ import annotations`).
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+Or, if you just want the dependencies without installing the package:
+
+```bash
+pip install -r requirements.txt
+```
+
+Supported Python versions: **3.9+** (the module uses
+`from __future__ import annotations`). Runtime dependencies are `numpy` and
+`pandas`; the test suite additionally requires `pytest`.
 
 ---
 
@@ -394,22 +402,84 @@ deliberate ways. Keep these in mind when comparing outputs:
 
 ---
 
+## Testing
+
+The repository ships with a `pytest` suite at `tests/test_prevent.py`. It
+includes:
+
+- **Numerical-parity checks** against worked examples from the upstream AHA
+  PREVENT reference (Table S25 of Khan et al. 2024 plus the published
+  supplemental Excel file, mirrored in the [`preventr`](https://github.com/martingmayer/preventr)
+  R package's `estimate_risk()` documentation). The tests assert agreement to
+  within **0.1 percentage points** of the published three-decimal reference
+  values for the female base model (age 50) and the male base model (age 66),
+  and against the Full model for a worked example with HbA1c and UACR.
+- **Structural / contract tests** covering `REQUIRED_COLUMNS` validation,
+  output column presence, immutability of the input DataFrame, the
+  documented input-clipping behavior, the `bp_treat_default=None` /
+  `statin_default=None` NaN behavior, the smoking-column preference toggle,
+  ZIP truncation, multi-row scoring, and the helper functions
+  (`_normalize_sex`, `_to_binary01`, `_sdicat`, `_sigmoid_pct`).
+
+Run them with:
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+> Note: the Full equation here is the AHA-source full-only form with
+> published missing-input offsets — it is **not** equivalent to the
+> intermediate "+HbA1c-only" / "+UACR-only" / "+SDI-only" models that the
+> `preventr` R package fits as distinct equations. Numerical parity is
+> verified against the **Base** model and the **Full** model with optional
+> inputs; intermediate variants are out of scope.
+
+---
+
 ## Project layout
 
 ```
 pyprevent/
-├── prevent.py     # The PREVENT 10-year implementation (single module)
+├── prevent.py                       # The PREVENT 10-year implementation
+├── tests/
+│   └── test_prevent.py              # pytest suite with parity + contract tests
+├── .github/
+│   └── workflows/
+│       └── test.yml                 # GitHub Actions CI (pytest on push / PR)
+├── pyproject.toml                   # Build / install metadata (PEP 621)
+├── requirements.txt                 # Runtime dependency pins (numpy, pandas)
+├── LICENSE                          # MIT license + medical-advice disclaimer
+├── CHANGELOG.md                     # Release history (Keep a Changelog format)
+├── .gitignore
 └── README.md
 ```
+
+## Continuous integration
+
+`.github/workflows/test.yml` runs the `pytest` suite on every push and pull
+request to `main` / `master`, plus manual `workflow_dispatch`. The matrix
+covers:
+
+- **Linux**: Python 3.9, 3.10, 3.11, 3.12, 3.13.
+- **macOS** and **Windows**: smoke run on Python 3.12.
+
+## Release history
+
+See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. The current
+version is **0.1.0**.
 
 ---
 
 ## License
 
-This repository does not yet ship a `LICENSE` file. Add one before public
-release. The original AHA PREVENT equations are publicly available; the
-official `AHAprevent` R source is distributed under its own license — check
-the upstream repository before redistributing derivative code.
+This project is released under the **MIT License**. See [`LICENSE`](LICENSE)
+for full text, including the medical-advice disclaimer appended to the
+license.
+
+The original AHA PREVENT equations are publicly available; the official
+`AHAprevent` R source is distributed under its own license — check the
+upstream repository before redistributing derivative code.
 
 ---
 
