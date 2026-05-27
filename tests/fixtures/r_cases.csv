@@ -1,0 +1,10 @@
+case_id,sex,age,tc,hdl,sbp,dm,smoking,bmi,egfr,bptreat,statin,uacr,hba1c,sdi
+vignette_base_female_45,1,45,200,60,120,1,0,25,95,0,0,,,
+vignette_uacr_male_75,0,75,240,90,130,0,0,30,105,1,1,10,,
+vignette_hba1c_female_39_bmi_na,1,39,190,50,110,1,0,,120,0,0,,8,
+vignette_sdi_male_58_hdl_na_statin_na,0,58,267,,150,0,0,35,45,1,,,,8
+tables25_female_50,1,50,200,45,160,1,0,35,90,1,0,,,
+preventr_base_male_66,0,66,188,52,148,1,1,30,67,0,1,,,
+preventr_full_female_66_missing_sdi,1,66,188,52,148,1,1,30,67,0,1,75,9,
+age_20_all_na,1,45,200,60,120,1,0,25,95,0,0,,,
+age_75_30yr_masked,0,75,240,90,130,0,0,30,105,1,1,10,,

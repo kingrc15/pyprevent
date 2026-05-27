@@ -5,23 +5,19 @@
 [![Python](https://img.shields.io/badge/python-3.9%2B-blue.svg)](pyproject.toml)
 
 A pure-Python, pandas-friendly implementation of the **American Heart
-Association (AHA) PREVENT™ (Predicting Risk of CVD EVENTs)** 10-year risk
-equations.
+Association (AHA) PREVENT™ (Predicting Risk of CVD EVENTs)** equations.
 
-`prevent.py` ports the published AHA PREVENT coefficient set into a vectorized
-workflow that consumes a `pandas.DataFrame` of patient features and returns
-the same DataFrame with six new columns containing 10-year predicted risk (in
-percent) for:
+The `prevent` package scores patient cohorts from a `pandas.DataFrame` and
+returns predicted **10-year and 30-year** absolute risk (percent) for:
 
-- **Total CVD** (atherosclerotic CVD + heart failure)
-- **ASCVD** (atherosclerotic CVD: MI, stroke)
-- **Heart Failure (HF)**
+- **Total CVD**, **ASCVD**, and **heart failure (HF)**
 
-each estimated under both:
+under five published model variants (**Base**, **UACR**, **HbA1c**, **SDI**,
+**Full**). The convenience wrapper `compute_prevent10` returns the legacy six
+Basic + Full 10-year columns only.
 
-- the **Basic** model (traditional risk factors only), and
-- the **Full** model (Basic + urine albumin-to-creatinine ratio, HbA1c, and
-  Social Deprivation Index).
+Scoring is row-oriented (one patient per row); optional per-row `BPTREAT` and
+`STATIN` columns override call-level defaults when present.
 
 The model coefficients, input ranges, transformations, and missing-data
 fallback paths in this file are translated from the official
@@ -64,7 +60,7 @@ Pooled Cohort Equations (PCE) and offer several improvements:
 - **Race-free** — race/ethnicity is not used as an input.
 - **Sex-specific** equations for adults aged **30–79**.
 - Predict **10-year and 30-year** absolute risk for total CVD, ASCVD subtypes,
-  and heart failure (this implementation covers the **10-year** horizon).
+  and heart failure (both horizons are implemented in `compute_prevent`).
 - Adjust for the **competing risk of non-CVD death**.
 - Incorporate **cardiovascular–kidney–metabolic (CKM)** health by including
   estimated glomerular filtration rate (eGFR) in the base model, with
@@ -109,7 +105,7 @@ Supported Python versions: **3.9+** (the module uses
 
 ```python
 import pandas as pd
-from prevent import compute_prevent10
+from prevent import compute_prevent, compute_prevent10
 
 df = pd.DataFrame([
     {
@@ -121,7 +117,7 @@ df = pd.DataFrame([
         "T2DM": 0,
         "SMOKING_CURR": 0, "RECENT_SMOKING": 0,
         "UACR": 12.0, "HBA1C": 5.6,
-        "ADI": None, "SVI": None, "ZIP": "75201",
+        "ZIP": "75201",
     }
 ])
 
@@ -130,7 +126,7 @@ scored = compute_prevent10(
     bp_treat_default=0,   # no antihypertensive treatment
     statin_default=0,     # not on a statin
     smoking_preference="SMOKING_CURR",
-    sdi_series=None,      # SDI unknown -> uses missing-SDI fallback coefficients
+    sdi_series=None,      # omit to use ZIP → bundled RGC ZCTA crosswalk
 )
 
 scored[[
@@ -148,38 +144,37 @@ scored[[
 
 ## Input schema
 
-`compute_prevent10` requires a `pandas.DataFrame` containing **exactly** the
-columns listed in `REQUIRED_COLUMNS`:
+`compute_prevent` and `compute_prevent10` require a `pandas.DataFrame` with at
+least the columns in `REQUIRED_COLUMNS` (extra columns are ignored):
 
 | Column            | Type      | Units                | Accepted values / coercion                                                              | Used by equations? |
 | ----------------- | --------- | -------------------- | --------------------------------------------------------------------------------------- | ------------------ |
 | `PAT_ID`          | any       | —                    | passthrough identifier                                                                  | no                 |
-| `AGE`             | numeric   | years                | clipped to **[30, 79]**                                                                 | yes                |
+| `AGE`             | numeric   | years                | must be in **[30, 79]**                                                                 | yes                |
 | `SEX`             | str/int   | —                    | `"M"`, `"male"`, `0` → male; `"F"`, `"female"`, `1` → female                            | yes                |
-| `TCHOL`           | numeric   | mg/dL                | clipped to **[130, 320]**                                                               | yes (CVD/ASCVD)    |
-| `HDL`             | numeric   | mg/dL                | clipped to **[20, 100]**                                                                | yes (CVD/ASCVD)    |
-| `SBP`             | numeric   | mmHg                 | clipped to **[90, 200]**                                                                | yes                |
-| `BMI`             | numeric   | kg/m²                | clipped to **[18.5, 39.9]**                                                             | yes (HF)           |
-| `EGFR`            | numeric   | mL/min/1.73 m²       | clipped to **[15, 140]**                                                                | yes                |
+| `TCHOL`           | numeric   | mg/dL                | must be in **[130, 320]**                                                               | yes (CVD/ASCVD)    |
+| `HDL`             | numeric   | mg/dL                | must be in **[20, 100]**                                                                | yes (CVD/ASCVD)    |
+| `SBP`             | numeric   | mmHg                 | must be in **[90, 200]**                                                                | yes                |
+| `BMI`             | numeric   | kg/m²                | must be in **[18.5, 39.9]**                                                             | yes (HF)           |
+| `EGFR`            | numeric   | mL/min/1.73 m²       | must be **> 0**                                                                         | yes                |
 | `T2DM`            | 0/1       | —                    | type-2 diabetes status                                                                  | yes                |
 | `RECENT_SMOKING`  | 0/1       | —                    | recent (e.g., within X months) tobacco use                                              | optional (smoking) |
 | `SMOKING_CURR`    | 0/1       | —                    | current smoker                                                                          | optional (smoking) |
-| `UACR`            | numeric   | mg/g                 | clipped to **[0, 25000]**; values < 0.1 floored to 0.1 inside `log()`                   | Full model         |
-| `HBA1C`           | numeric   | %                    | clipped to **[3, 15]**                                                                  | Full model         |
-| `ADI`             | numeric   | percentile           | Area Deprivation Index — **stored for reference, not used in equations**                | no                 |
-| `SVI`             | numeric   | 0–1                  | Social Vulnerability Index — **stored for reference, not used in equations**            | no                 |
-| `ZIP`             | str/int   | —                    | truncated to first 5 characters — **stored for reference, not used in equations**       | no                 |
+| `UACR`            | numeric   | mg/g                 | must be **≥ 0**; values < 0.1 floored to 0.1 inside `log()`                              | UACR/Full models   |
+| `HBA1C`           | numeric   | %                    | must be **> 0**                                                                          | HbA1c/Full models  |
+| `ZIP`             | str/int   | 5-digit ZCTA         | SDI lookup when `sdi_series` is omitted (first five digits, zero-padded)               | SDI/Full models    |
+| `BPTREAT`         | 0/1       | —                    | optional; per-row antihypertensive treatment (overrides `bp_treat_default`)             | yes                |
+| `STATIN`          | 0/1       | —                    | optional; per-row statin use (overrides `statin_default`)                               | yes (CVD/ASCVD)    |
 
-Two additional model inputs are supplied **outside** the DataFrame:
+Call-level arguments (used when `BPTREAT` / `STATIN` columns are absent):
 
 | Argument            | Type / values     | Meaning                                                              |
 | ------------------- | ----------------- | -------------------------------------------------------------------- |
-| `bp_treat_default`  | `0`, `1`, or `None` | Whether the patient is on antihypertensive treatment.              |
-| `statin_default`    | `0`, `1`, or `None` | Whether the patient is on a statin.                                |
-| `sdi_series`        | `pandas.Series` or `None` | Optional **Social Deprivation Index** decile (1–10) per row. |
+| `bp_treat_default`  | `0`, `1`, or `None` | Default antihypertensive treatment for all rows.                     |
+| `statin_default`    | `0`, `1`, or `None` | Default statin status for all rows.                                |
+| `sdi_series`        | `pandas.Series` or `None` | Optional SDI decile (1–10) per row; overrides ZIP lookup when set. |
 
-When `bp_treat_default` or `statin_default` is `None`, the affected risk
-columns (anything requiring statin or BP-treatment status) are set to `NaN`.
+When treatment values are `None` or `NaN`, outputs that require them are `NaN`.
 
 ### Sex encoding
 
@@ -197,19 +192,26 @@ PREVENT requires a single binary smoking indicator. Choose between
 
 ### SDI handling
 
-The Social Deprivation Index is **not** read from `ADI`, `SVI`, or `ZIP`.
-Pass it explicitly through `sdi_series` aligned to the rows of `df`. Internally
-the raw 1–10 score is bucketed by `_sdicat` into a 3-level category:
+SDI enters the **SDI** and **Full** models only. Resolution order:
 
-| Raw SDI       | Category |
+1. **`sdi_series`** — optional per-row PREVENT decile (integer 1–10), aligned to
+   `df.index` (or same length in row order).
+2. **`ZIP`** — when `sdi_series` is omitted, the first five digits of `ZIP` are
+   matched to the bundled [Robert Graham Center](https://www.graham-center.org/rgc/maps-data-tools/sdi/social-deprivation-index.html)
+   ZCTA file (`prevent/data/rgc_sdi_zcta2015_2019.csv`). The file’s `SDI_score`
+   (percentile 1–100) is converted to a decile using the AHA crosswalk
+   (1–10 → 1, 11–20 → 2, …, 91–100 → 10).
+3. **Missing** — unknown or absent ZIP → published missing-SDI coefficients (same
+   as `sdi = NA` in `AHAprevent`).
+
+Internally, deciles 1–10 are bucketed by
+`_sdicat` into tertiles 0/1/2 for the equations:
+
+| Decile        | Category |
 | ------------- | -------- |
 | `0 < sdi < 4` | 0 (low)  |
 | `4 ≤ sdi < 7` | 1 (mid)  |
 | `7 ≤ sdi ≤10` | 2 (high) |
-
-If `sdi_series` is `None` (or the value is `NaN`), the Full model substitutes
-the published missing-SDI offsets — i.e., the exact "no-SDI" path used by the
-AHA `AHAprevent` R source.
 
 ---
 
@@ -217,18 +219,16 @@ AHA `AHAprevent` R source.
 
 For every row:
 
-1. **`_clip_inputs`** normalizes types, coerces sex/binary fields, and clips
-   each numeric input to the valid PREVENT input range.
+1. **Input coercion** (`coerce_dataframe`) normalizes types column-wise, then each
+   row is scored through the sex-specific equations (batch SDI lookup from `ZIP`).
 2. **`_validate_common_inputs`** ensures `AGE`, `SEX`, `SBP`, `T2DM`,
    smoking, and `EGFR` are all present and in-range. If not, that row's
    scores become `NaN`.
-3. The selected smoking flag, `bptreat`, `statin`, and `sdi` are bound.
-4. **`_prevent_10yr_base`** computes the log-odds for the **Basic** equations:
-   CVD, ASCVD, and HF (HF requires BMI and BP-treatment status; CVD/ASCVD
-   require TC, HDL, statin, and BP-treatment status).
-5. **`_prevent_10yr_full`** computes the log-odds for the **Full** equations,
-   adding terms for SDI, `log(UACR)`, and HbA1c (HbA1c is interacted with
-   diabetes status: separate slope when `T2DM == 1` vs `T2DM == 0`).
+3. Smoking, `bptreat`, `statin` (from `BPTREAT`/`STATIN` columns or call
+   defaults), and `sdi` (from `sdi_series`, `ZIP` lookup, or missing) are bound.
+4. Each `prevent_*` module evaluates the sex-specific **10-year and 30-year**
+   log-odds for CVD, ASCVD, and HF (Base, UACR, HbA1c, SDI, Full).
+5. Age rules mask 30-year outputs for ages 60–79 and all outputs outside 30–79.
 6. Each log-odds value is converted to a percentage via the logistic link:
 
    \[ p\,(\%) = \frac{100}{1 + e^{-x}} \]
@@ -280,16 +280,21 @@ equation form.
 
 The Full model adds three optional predictors. The published equations
 include an explicit "missing" coefficient for each of UACR, HbA1c, and SDI;
-`_prevent_10yr_full` uses these fallback offsets whenever the corresponding
-input is `NaN`, matching the AHA R source exactly.
+`prevent_full` uses these fallback offsets whenever the corresponding input is
+`NaN`, matching the AHA R source exactly.
 
 ---
 
 ## Output columns
 
-`compute_prevent10` appends the following columns to a copy of the input
-DataFrame (all values are 10-year predicted probabilities expressed as a
-percent, 0–100):
+### `compute_prevent` (30 columns)
+
+`PREVENT{10|30}_{CVD|ASCVD|HF}_{BASE|UACR|HBA1C|SDI|FULL}_PCT` — see
+`prevent.PREVENT_OUTPUT_COLUMNS` for the full list.
+
+### `compute_prevent10` (6 columns)
+
+Appends these 10-year columns (percent, 0–100) to a copy of the input DataFrame:
 
 | Column                       | Meaning                                       |
 | ---------------------------- | --------------------------------------------- |
@@ -307,9 +312,14 @@ affected outputs.
 
 ## Public API
 
+### `compute_prevent(df, ...) -> pandas.DataFrame`
+
+Score all models and horizons. Same arguments as `compute_prevent10`; returns
+input columns plus 30 `PREVENT*` risk columns.
+
 ### `compute_prevent10(df, bp_treat_default=0, statin_default=0, smoking_preference="SMOKING_CURR", sdi_series=None) -> pandas.DataFrame`
 
-Score an entire DataFrame.
+Score the legacy six 10-year Basic + Full columns.
 
 - **`df`** — must contain every column in `REQUIRED_COLUMNS`. A `ValueError`
   is raised if any are missing.
@@ -320,9 +330,9 @@ Score an entire DataFrame.
   every row. Set to `None` to force CVD/ASCVD outputs to `NaN`.
 - **`smoking_preference`** — `"SMOKING_CURR"` (default) or `"RECENT_SMOKING"`.
   Selects which column drives the smoking term.
-- **`sdi_series`** — optional `pandas.Series` of raw SDI deciles (1–10),
-  aligned by integer position to the rows of `df`. When `None` or `NaN`,
-  the Full model uses the published missing-SDI offsets.
+- **`sdi_series`** — optional `pandas.Series` of SDI deciles (1–10), aligned
+  by position to `df`. When omitted, SDI is looked up from `ZIP`; when a row
+  is `NaN` in `sdi_series` or ZIP is unknown, missing-SDI coefficients apply.
 
 Returns a **copy** of `df` with the six `PREVENT10_*` columns appended.
 
@@ -333,10 +343,11 @@ The canonical list of column names required by `compute_prevent10`:
 ```python
 [
     "PAT_ID", "AGE", "SEX", "TCHOL", "HDL", "SBP", "BMI", "EGFR",
-    "T2DM", "RECENT_SMOKING", "SMOKING_CURR", "UACR", "HBA1C",
-    "ADI", "SVI", "ZIP",
+    "T2DM", "RECENT_SMOKING", "SMOKING_CURR", "UACR", "HBA1C", "ZIP",
 ]
 ```
+
+Optional per-row treatment columns: `BPTREAT`, `STATIN` (see `prevent.OPTIONAL_COLUMNS`).
 
 ---
 
@@ -354,10 +365,9 @@ auditability of the port from the AHA R source.
 | `_to_float(x)`                             | Safe float coercion that returns `NaN` for unparseable/`NA` values.                                                                       |
 | `_to_binary01(x)`                          | Coerces a value to `0.0` or `1.0`; everything else becomes `NaN`.                                                                         |
 | `_normalize_sex(x)`                        | Accepts `"M"/"male"/0` → 0.0 (male) and `"F"/"female"/1` → 1.0 (female).                                                                  |
-| `_clip_inputs(row)`                        | Type-coerces and clips each row's inputs to PREVENT's valid ranges.                                                                       |
+| `coerce_inputs(row)`                       | Type-coerces each row's inputs (no range clipping).                                                                                      |
 | `_validate_common_inputs(...)`             | Sanity check on the always-required inputs (age, sex, SBP, T2DM, smoking, eGFR).                                                          |
-| `_prevent_10yr_base(...)`                  | Sex-specific Basic equations for CVD, ASCVD, and HF (10-year horizon).                                                                    |
-| `_prevent_10yr_full(...)`                  | Sex-specific Full equations adding UACR/HbA1c/SDI (10-year horizon).                                                                      |
+| `prevent_*` functions                      | Sex-specific PREVENT equations for Basic, UACR, HbA1c, SDI, and Full models (10-year and 30-year horizons).                              |
 
 ---
 
@@ -387,25 +397,19 @@ and graceful degradation:
 This module differs from the public AHA PREVENT online calculator in a few
 deliberate ways. Keep these in mind when comparing outputs:
 
-1. **10-year only.** Only the 10-year horizon is implemented here. The
-   30-year PREVENT equations are not yet ported.
-2. **Input clipping.** Out-of-range inputs are silently clipped to the
-   valid PREVENT range (e.g., `SBP = 250` becomes `200`). The web
-   calculator typically rejects out-of-range values.
-3. **BP-treatment and statin status** are not part of the row schema. They
-   are supplied per-call via `bp_treat_default` / `statin_default`. For
-   patient-level fidelity, score each cohort sub-group (treated vs.
-   untreated) separately, or extend the call site to pass row-level values.
-4. **SDI** must be passed explicitly via `sdi_series`. The `ADI`, `SVI`, and
-   `ZIP` columns in the input schema are carried through but are **not**
-   used by the equations.
+1. **R-parity behavior.** This implementation follows the upstream `AHAprevent`
+   R package: out-of-range inputs are rejected (produce `NaN`) rather than
+   silently clipped.
+2. **Treatment flags.** Use optional `BPTREAT` / `STATIN` columns for per-row
+   values, or `bp_treat_default` / `statin_default` when those columns are absent.
+3. **SDI** is resolved from `sdi_series` when provided, otherwise from `ZIP`
+   via the bundled RGC ZCTA crosswalk.
 
 ---
 
 ## Testing
 
-The repository ships with a `pytest` suite at `tests/test_prevent.py`. It
-includes:
+The repository ships with a `pytest` suite under `tests/`. It includes:
 
 - **Numerical-parity checks** against worked examples from the upstream AHA
   PREVENT reference (Table S25 of Khan et al. 2024 plus the published
@@ -416,7 +420,7 @@ includes:
   and against the Full model for a worked example with HbA1c and UACR.
 - **Structural / contract tests** covering `REQUIRED_COLUMNS` validation,
   output column presence, immutability of the input DataFrame, the
-  documented input-clipping behavior, the `bp_treat_default=None` /
+  out-of-range rejection behavior, the `bp_treat_default=None` /
   `statin_default=None` NaN behavior, the smoking-column preference toggle,
   ZIP truncation, multi-row scoring, and the helper functions
   (`_normalize_sex`, `_to_binary01`, `_sdicat`, `_sigmoid_pct`).
@@ -426,7 +430,29 @@ Run them with:
 ```bash
 pip install -e ".[dev]"
 pytest
+python scripts/audit_coefficients.py  # skips if R source not found locally
 ```
+
+Set `PREVENT_R_SOURCE` to point at `AHA_prevent_equations.R` when the audit
+cannot find `../PREVENT/R/AHAprevent/R/` relative to the repo.
+
+To refresh fixtures from **AHAprevent** (recommended), use the conda R env:
+
+```bash
+bash scripts/r-env/setup.sh                      # once: creates env pyprevent-r
+bash scripts/r-env/run_generate_reference.sh   # writes tests/fixtures/r_reference.csv
+```
+
+See [`scripts/r-env/README.md`](scripts/r-env/README.md) for `PREVENT_R_PKG`, Docker, and troubleshooting.
+
+Fallback without R (locks current Python output):
+
+```bash
+python scripts/fill_r_reference.py
+```
+
+The `r-reference` GitHub Actions workflow can regenerate the CSV via
+`workflow_dispatch` when a sibling `PREVENT` checkout is available.
 
 > Note: the Full equation here is the AHA-source full-only form with
 > published missing-input offsets — it is **not** equivalent to the
@@ -441,17 +467,24 @@ pytest
 
 ```
 pyprevent/
-├── prevent.py                       # The PREVENT 10-year implementation
+├── prevent/                         # Package implementation
+│   ├── __init__.py                  # compute_prevent, compute_prevent10
+│   ├── _base.py … _full.py          # Model equations (10yr + 30yr)
+│   ├── _zip_sdi.py                  # ZIP → SDI decile lookup
+│   └── data/
+│       ├── rgc_sdi_zcta2015_2019.csv
+│       └── DATA_SOURCES.md
 ├── tests/
-│   └── test_prevent.py              # pytest suite with parity + contract tests
-├── .github/
-│   └── workflows/
-│       └── test.yml                 # GitHub Actions CI (pytest on push / PR)
-├── pyproject.toml                   # Build / install metadata (PEP 621)
-├── requirements.txt                 # Runtime dependency pins (numpy, pandas)
-├── LICENSE                          # MIT license + medical-advice disclaimer
-├── CHANGELOG.md                     # Release history (Keep a Changelog format)
-├── .gitignore
+│   ├── test_prevent.py              # Parity + contract tests
+│   ├── test_prevent30.py            # Age / horizon masks
+│   ├── test_r_parity.py             # Fixture-based R comparison
+│   └── test_package.py              # Bundled data + output schema
+├── scripts/
+│   ├── audit_coefficients.py
+│   ├── fill_r_reference.py          # Python regression fixture (CI default)
+│   └── generate_r_reference.R       # Upstream AHAprevent golden (needs R)
+├── .github/workflows/test.yml
+├── pyproject.toml
 └── README.md
 ```
 
@@ -467,7 +500,7 @@ covers:
 ## Release history
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the full release history. The current
-version is **0.1.0**.
+version is **0.2.0**.
 
 ---
 

@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pyprevent"
-version = "0.1.0"
-description = "Python implementation of the AHA PREVENT 10-year cardiovascular risk equations."
+version = "0.2.0"
+description = "Python implementation of the AHA PREVENT cardiovascular risk equations (10- and 30-year horizons)."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
@@ -51,7 +51,10 @@ Repository = "https://github.com/kingrc15/pyprevent"
 Issues = "https://github.com/kingrc15/pyprevent/issues"
 
 [tool.setuptools]
-py-modules = ["prevent"]
+packages = ["prevent"]
+
+[tool.setuptools.package-data]
+prevent = ["data/*.csv", "data/*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
