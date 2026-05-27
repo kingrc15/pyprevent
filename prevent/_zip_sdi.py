@@ -33,7 +33,7 @@ def _zcta_decile_table() -> dict[str, float]:
     df = pd.read_csv(_ZCTA_SDI_CSV, usecols=["ZCTA5_FIPS", "SDI_score"], dtype={"ZCTA5_FIPS": str})
     zcta = df["ZCTA5_FIPS"].str.zfill(5)
     deciles = df["SDI_score"].map(sdi_score_to_decile)
-    return dict(zip(zcta, deciles, strict=False))
+    return dict(zip(zcta.tolist(), deciles.tolist()))
 
 
 def lookup_sdi_decile_from_zip(zip5: str | None) -> float:
