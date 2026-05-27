@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Batch column coercion (`coerce_dataframe`) and indexed scoring loop (no `iterrows`).
+- R parity tolerance tightened to `atol=1e-12` against AHAprevent-generated fixtures.
+- `generate_r_reference.R` skips reinstall when `PREVENT_SKIP_R_INSTALL=1`.
+
+### Added
+
+- Fixture cases `age_20_all_na` and `age_75_30yr_masked` in `r_cases.csv`.
+- Shared `tests/factories.make_prevent_row` for test data construction.
+
+## [0.2.0] - 2026-05-27
+
+### Added
+
+- `compute_prevent()` — all five PREVENT models × 10- and 30-year horizons (30 output columns).
+- Optional per-row `BPTREAT` and `STATIN` columns; `prevent.OPTIONAL_COLUMNS`.
+- ZIP → SDI decile lookup via bundled RGC ZCTA crosswalk (`prevent/data/rgc_sdi_zcta2015_2019.csv`).
+- `scripts/fill_r_reference.py` and expanded `tests/fixtures/r_reference.csv` (full 30-column regression fixture).
+- `scripts/audit_coefficients.py` (sentinel check vs R source; skips when R absent).
+- GitHub Actions workflow `r-reference.yml` to regenerate fixtures from `AHAprevent` via `workflow_dispatch`.
+
+### Changed
+
+- **Breaking:** removed unused `ADI` and `SVI` from `REQUIRED_COLUMNS`.
+- **Breaking:** monolithic `prevent.py` replaced by the `prevent/` package.
+- `compute_prevent10()` scores only Base + Full models (no longer runs UACR/HbA1c/SDI-only equations).
+- `sdi_series` aligns to `df.index` when possible; batch ZIP→SDI lookup before the row loop.
+- Out-of-range inputs produce `NaN` (R parity) instead of silent clipping.
+
+### Fixed
+
+- Female `prevent_full` 30-year CVD/ASCVD were incorrectly nested under `can_hf` (missing BMI no longer suppresses them).
+
+### Added
+
+- Conda R environment under `scripts/r-env/` for running `generate_r_reference.R`.
+
+### Known limitations
+
+- Equation evaluation remains per-row Python (inputs are batch-coerced; log-odds are not column-vectorized).
+- Regenerate `r_reference.csv` with `bash scripts/r-env/run_generate_reference.sh` when AHAprevent is available.
+
 ## [0.1.0] - 2026-05-12
 
 Initial public release.
@@ -62,17 +105,10 @@ Initial public release.
 
 ### Known limitations
 
-- Only the **10-year** PREVENT horizon is implemented; the 30-year
-  equations are not yet ported.
-- The `ADI`, `SVI`, and `ZIP` columns are part of the input schema but are
-  passed through unused — the Social Deprivation Index must be supplied
-  separately via the `sdi_series` argument.
-- The Full equation is the AHA-source "full-only" form (with published
-  missing-input offsets); it is not equivalent to the intermediate
-  "+HbA1c-only", "+UACR-only", or "+SDI-only" models fit by the `preventr`
-  R package as distinct equations.
-- Out-of-range numeric inputs are silently clipped to the valid PREVENT
-  range rather than rejected.
+- Scoring loops rows in Python (`iterrows`); not column-vectorized across patients.
+- R golden fixtures cover only a small vignette subset (`tests/fixtures/r_reference.csv`).
+- Regenerating full R reference output requires `Rscript` and a local `AHAprevent` install.
 
-[Unreleased]: https://github.com/kingrc15/pyprevent/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/kingrc15/pyprevent/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/kingrc15/pyprevent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/kingrc15/pyprevent/releases/tag/v0.1.0

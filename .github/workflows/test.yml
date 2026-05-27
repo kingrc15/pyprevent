@@ -50,3 +50,6 @@ jobs:
 
       - name: Run test suite
         run: pytest -v
+
+      - name: Coefficient sentinel audit
+        run: python scripts/audit_coefficients.py

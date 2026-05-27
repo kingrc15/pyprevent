@@ -1,0 +1,41 @@
+name: r-reference
+
+# Regenerate tests/fixtures/r_reference.csv from AHAprevent when R is available.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout PREVENT (AHAprevent R source)
+        uses: actions/checkout@v4
+        with:
+          repository: AHA-DS-Analytics/PREVENT
+          path: PREVENT
+          sparse-checkout: |
+            R/AHAprevent
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          activate-environment: pyprevent-r
+          environment-file: scripts/r-env/environment.yml
+          auto-update-conda: true
+
+      - name: Install AHAprevent
+        env:
+          PREVENT_R_PKG: ${{ github.workspace }}/PREVENT/R/AHAprevent
+        run: R CMD INSTALL "$PREVENT_R_PKG"
+
+      - name: Generate R reference fixture
+        env:
+          PREVENT_R_PKG: ${{ github.workspace }}/PREVENT/R/AHAprevent
+        run: Rscript scripts/generate_r_reference.R
+
+      - name: Show diff
+        run: git diff --stat tests/fixtures/r_reference.csv || true

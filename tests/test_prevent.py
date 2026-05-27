@@ -30,40 +30,24 @@ from prevent import (
     _sdicat,
     _sigmoid_pct,
     _to_binary01,
+    coerce_dataframe,
+    compute_prevent,
     compute_prevent10,
 )
+from tests.factories import make_prevent_row as _row
 
 
 PCT_TOL = 0.1  # percentage-point tolerance vs. published 3-decimal reference values
 
 
-def _row(**overrides):
-    """Return a one-row DataFrame with sensible defaults for every required column."""
-    base = {
-        "PAT_ID": "P001",
-        "AGE": 55,
-        "SEX": "F",
-        "TCHOL": 200,
-        "HDL": 50,
-        "SBP": 130,
-        "BMI": 28.0,
-        "EGFR": 85,
-        "T2DM": 0,
-        "RECENT_SMOKING": 0,
-        "SMOKING_CURR": 0,
-        "UACR": np.nan,
-        "HBA1C": np.nan,
-        "ADI": np.nan,
-        "SVI": np.nan,
-        "ZIP": "75201",
-    }
-    base.update(overrides)
-    return pd.DataFrame([base])
-
-
 # ---------------------------------------------------------------------------
 # Parity tests against the upstream R reference (preventr / Table S25)
 # ---------------------------------------------------------------------------
+
+
+def test_coerce_dataframe_row_count():
+    df = _row(BPTREAT=0, STATIN=1)
+    assert len(coerce_dataframe(df)) == 1
 
 
 def test_table_s25_female_base_model():
@@ -114,6 +98,7 @@ def test_female_full_model_hba1c_and_uacr_no_sdi():
         AGE=66, SEX="F", SBP=148, TCHOL=188, HDL=52,
         T2DM=1, SMOKING_CURR=1, EGFR=67, BMI=30,
         HBA1C=9, UACR=75,
+        ZIP="99999",  # not in RGC ZCTA table → missing-SDI path
     )
     out = compute_prevent10(df, bp_treat_default=0, statin_default=1)
 
@@ -183,15 +168,10 @@ def test_missing_age_yields_all_nan():
 
 def test_age_out_of_range_is_silently_clipped():
     """
-    Documented behavior: out-of-range inputs are silently clipped to the valid
-    PREVENT range before validation, so AGE=20 produces the same output as
-    AGE=30 (both clip to 30). This locks that contract in place.
+    R parity behavior: out-of-range inputs are rejected (NA), not clipped.
     """
     out_low = compute_prevent10(_row(AGE=20), bp_treat_default=0, statin_default=0)
-    out_edge = compute_prevent10(_row(AGE=30), bp_treat_default=0, statin_default=0)
-    assert out_low["PREVENT10_CVD_BASIC_PCT"].iloc[0] == pytest.approx(
-        out_edge["PREVENT10_CVD_BASIC_PCT"].iloc[0]
-    )
+    assert pd.isna(out_low["PREVENT10_CVD_BASIC_PCT"].iloc[0])
 
 
 def test_bp_treat_none_blocks_outputs():
@@ -262,9 +242,33 @@ def test_zip_truncated_to_five_chars():
     """Long ZIP codes should be passed through as their first 5 characters."""
     out = compute_prevent10(_row(ZIP="752019999"), bp_treat_default=0, statin_default=0)
     assert out["ZIP"].iloc[0] == "752019999"  # original column is preserved
-    # Internal truncation lives in _clip_inputs and does not surface in the output frame
-    # but should not cause the row to error out.
     assert not pd.isna(out["PREVENT10_CVD_BASIC_PCT"].iloc[0])
+
+
+def test_sdi_decile_from_zip_lookup():
+    """ZIP 75201 maps to SDI score 55 → decile 6 in the RGC crosswalk."""
+    from prevent import lookup_sdi_decile_from_zip, sdi_score_to_decile
+
+    assert sdi_score_to_decile(55) == 6.0
+    assert sdi_score_to_decile(10) == 1.0
+    assert sdi_score_to_decile(11) == 2.0
+    assert lookup_sdi_decile_from_zip("75201") == 6.0
+    assert math.isnan(lookup_sdi_decile_from_zip("99999"))
+
+
+def test_zip_sdi_changes_full_model_vs_unknown_zip():
+    """Known ZIP supplies SDI; unknown ZIP uses missing-SDI coefficients."""
+    base = dict(
+        AGE=66, SEX="F", SBP=148, TCHOL=188, HDL=52,
+        T2DM=1, SMOKING_CURR=1, EGFR=67, BMI=30,
+        HBA1C=9, UACR=75,
+    )
+    out_known = compute_prevent10(_row(**base, ZIP="75201"), bp_treat_default=0, statin_default=1)
+    out_unknown = compute_prevent10(_row(**base, ZIP="99999"), bp_treat_default=0, statin_default=1)
+    assert (
+        out_known["PREVENT10_CVD_FULL_PCT"].iloc[0]
+        != out_unknown["PREVENT10_CVD_FULL_PCT"].iloc[0]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -334,27 +338,76 @@ def test_sigmoid_pct(x, expected):
 
 
 def test_multi_row_independence():
-    """Scoring multiple rows should give the same result as scoring them individually."""
+    """Per-row BPTREAT/STATIN are applied independently in a batch."""
     df = pd.concat(
         [
-            _row(AGE=50, SEX="F", SBP=160, TCHOL=200, HDL=45,
-                 T2DM=1, SMOKING_CURR=0, EGFR=90, BMI=35),
-            _row(AGE=66, SEX="M", SBP=148, TCHOL=188, HDL=52,
-                 T2DM=1, SMOKING_CURR=1, EGFR=67, BMI=30, HBA1C=7.5),
+            _row(
+                AGE=50, SEX="F", SBP=160, TCHOL=200, HDL=45,
+                T2DM=1, SMOKING_CURR=0, EGFR=90, BMI=35,
+                BPTREAT=1, STATIN=0,
+            ),
+            _row(
+                AGE=66, SEX="M", SBP=148, TCHOL=188, HDL=52,
+                T2DM=1, SMOKING_CURR=1, EGFR=67, BMI=30, HBA1C=7.5,
+                BPTREAT=0, STATIN=1,
+            ),
         ],
         ignore_index=True,
     )
-    # Score the batch under one shared bp_treat_default / statin_default,
-    # then score each row individually -- once under that same default
-    # (must match the batch result) and once under a different default
-    # (must NOT match, proving rows are scored independently with no leakage).
-    out_batch = compute_prevent10(df, bp_treat_default=1, statin_default=0)
-    out_row0_same = compute_prevent10(df.iloc[[0]], bp_treat_default=1, statin_default=0)
-    out_row1_diff = compute_prevent10(df.iloc[[1]], bp_treat_default=0, statin_default=1)
+    out_batch = compute_prevent10(df)
+    out_row0 = compute_prevent10(df.iloc[[0]])
+    out_row1 = compute_prevent10(df.iloc[[1]])
 
     assert out_batch["PREVENT10_HF_BASIC_PCT"].iloc[0] == pytest.approx(
-        out_row0_same["PREVENT10_HF_BASIC_PCT"].iloc[0]
+        out_row0["PREVENT10_HF_BASIC_PCT"].iloc[0]
     )
-    assert out_batch["PREVENT10_HF_BASIC_PCT"].iloc[1] != pytest.approx(
-        out_row1_diff["PREVENT10_HF_BASIC_PCT"].iloc[0]
+    assert out_batch["PREVENT10_HF_BASIC_PCT"].iloc[1] == pytest.approx(
+        out_row1["PREVENT10_HF_BASIC_PCT"].iloc[0]
+    )
+    assert out_batch["PREVENT10_CVD_BASIC_PCT"].iloc[0] != pytest.approx(
+        out_batch["PREVENT10_CVD_BASIC_PCT"].iloc[1]
+    )
+
+
+def test_sdi_series_aligns_with_dataframe_index():
+    """sdi_series can use df.index instead of positional iloc alignment."""
+    df = pd.concat(
+        [_row(PAT_ID="a", ZIP="99999"), _row(PAT_ID="b", ZIP="99999")],
+        ignore_index=False,
+    )
+    df.index = ["x", "y"]
+    out = compute_prevent10(
+        df,
+        sdi_series=pd.Series({"x": 3.0, "y": 10.0}),
+    )
+    assert out["PREVENT10_CVD_FULL_PCT"].loc["x"] != out["PREVENT10_CVD_FULL_PCT"].loc["y"]
+
+
+def test_compute_prevent10_omits_intermediate_model_columns():
+    out = compute_prevent10(_row(BPTREAT=0, STATIN=0))
+    assert "PREVENT10_CVD_UACR_PCT" not in out.columns
+    assert "PREVENT30_CVD_BASE_PCT" not in out.columns
+    assert "PREVENT10_CVD_BASIC_PCT" in out.columns
+
+
+def test_row_level_bptreat_statin_override_call_defaults():
+    """BPTREAT/STATIN columns take precedence over bp_treat_default/statin_default."""
+    df = _row(BPTREAT=1, STATIN=0)
+    with_cols = compute_prevent10(df)
+    with_defaults = compute_prevent10(
+        df.drop(columns=["BPTREAT", "STATIN"]),
+        bp_treat_default=1,
+        statin_default=0,
+    )
+    assert with_cols["PREVENT10_CVD_BASIC_PCT"].iloc[0] == pytest.approx(
+        with_defaults["PREVENT10_CVD_BASIC_PCT"].iloc[0]
+    )
+
+    mismatched = compute_prevent10(
+        df.drop(columns=["BPTREAT", "STATIN"]),
+        bp_treat_default=0,
+        statin_default=1,
+    )
+    assert with_cols["PREVENT10_CVD_BASIC_PCT"].iloc[0] != pytest.approx(
+        mismatched["PREVENT10_CVD_BASIC_PCT"].iloc[0]
     )

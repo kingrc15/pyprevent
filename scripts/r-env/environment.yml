@@ -1,0 +1,8 @@
+# Conda environment for regenerating tests/fixtures/r_reference.csv from AHAprevent.
+# Create:  bash scripts/r-env/setup.sh
+# Run:     bash scripts/r-env/run_generate_reference.sh
+name: pyprevent-r
+channels:
+  - conda-forge
+dependencies:
+  - r-base>=4.3,<4.5
