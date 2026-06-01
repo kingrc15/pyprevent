@@ -3,13 +3,19 @@ from __future__ import annotations
 import pytest
 
 from tests.r_harness import (
+    ahaprevent_available,
     assert_python_matches_r,
     boundary_cases,
-    r_available,
     random_valid_cases,
 )
 
-pytestmark = pytest.mark.skipif(not r_available(), reason="Rscript / pyprevent-r env not available")
+pytestmark = [
+    pytest.mark.r_parity,
+    pytest.mark.skipif(
+        not ahaprevent_available(),
+        reason="AHAprevent not installed (need R + package; see scripts/r-env/)",
+    ),
+]
 
 
 @pytest.mark.parametrize("seed", [42, 99, 2024])

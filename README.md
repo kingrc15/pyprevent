@@ -465,10 +465,12 @@ pytest tests/test_aha_web_parity.py -v  # live official web API (needs network)
 
 **R property tests** (`tests/test_r_property.py`) batch-score random and
 boundary inputs through both Python and `AHAprevent`, comparing all 30 output
-columns to `1e-9` percent. They require `Rscript` plus the `pyprevent-r` conda
-env (or set `PREVENT_RSCRIPT` / `PYPREVENT_R_ENV`). Tests are skipped when R is
-absent so default CI stays fast; run the full matrix locally or via
-`workflow_dispatch` on the `tests` workflow (job `r-property`).
+columns to `1e-9` percent. They require `Rscript` **and** a loadable `AHAprevent` package (or a sibling
+`PREVENT/R/AHAprevent` checkout for auto-install). Set `PREVENT_RSCRIPT` /
+`PYPREVENT_R_ENV` as needed. Tests are skipped when the package is missing, so
+default CI (including Windows smoke runs with bare R) stays green; run the full
+matrix locally or via `workflow_dispatch` on the `tests` workflow (job
+`r-property`).
 
 ```bash
 bash scripts/r-env/setup.sh

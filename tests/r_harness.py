@@ -51,11 +51,78 @@ def r_available() -> bool:
     return rscript_path() is not None
 
 
+_AHAPREVENT_AVAILABLE: bool | None = None
+
+
+def _ahaprevent_pkg_path() -> Path:
+    return Path(os.environ.get("PREVENT_R_PKG", DEFAULT_R_PKG))
+
+
+def ahaprevent_available() -> bool:
+    """
+    True when R can load the AHAprevent package (optionally after installing from PREVENT_R_PKG).
+
+    CI runners often have Rscript without AHAprevent; property tests must skip in that case.
+    """
+    global _AHAPREVENT_AVAILABLE
+    if _AHAPREVENT_AVAILABLE is not None:
+        return _AHAPREVENT_AVAILABLE
+
+    if rscript_path() is None:
+        _AHAPREVENT_AVAILABLE = False
+        return False
+
+    def _probe() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            _rscript_cmd()
+            + [
+                "-e",
+                "suppressPackageStartupMessages(library(AHAprevent)); quit(status=0)",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+
+    if _probe().returncode == 0:
+        _AHAPREVENT_AVAILABLE = True
+        return True
+
+    if os.environ.get("PREVENT_SKIP_R_INSTALL") == "1":
+        _AHAPREVENT_AVAILABLE = False
+        return False
+
+    pkg = _ahaprevent_pkg_path()
+    if not (pkg / "DESCRIPTION").is_file():
+        _AHAPREVENT_AVAILABLE = False
+        return False
+
+    r_cmd = shutil.which("R")
+    if r_cmd is None:
+        _AHAPREVENT_AVAILABLE = False
+        return False
+
+    install = subprocess.run(
+        [r_cmd, "CMD", "INSTALL", str(pkg)],
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+    )
+    if install.returncode != 0:
+        _AHAPREVENT_AVAILABLE = False
+        return False
+
+    _AHAPREVENT_AVAILABLE = _probe().returncode == 0
+    return _AHAPREVENT_AVAILABLE
+
+
 def _rscript_cmd() -> list[str]:
     path = rscript_path()
     if path is None:
         raise RuntimeError("Rscript not available")
-    if " " in path:
+    if " run -n " in path or path.startswith(("conda ", "mamba ")):
         return path.split()
     return [path]
 
