@@ -3,7 +3,18 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ._core import mmol_conversion, sigmoid_pct, validate_common_inputs
+from ._core import invalid_hba1c, mmol_conversion, sigmoid_pct, validate_common_inputs
+
+
+def _hba1c_nan() -> dict[str, float]:
+    return {
+        "prevent_hba1c_10yr_CVD": np.nan,
+        "prevent_hba1c_10yr_ASCVD": np.nan,
+        "prevent_hba1c_10yr_HF": np.nan,
+        "prevent_hba1c_30yr_CVD": np.nan,
+        "prevent_hba1c_30yr_ASCVD": np.nan,
+        "prevent_hba1c_30yr_HF": np.nan,
+    }
 
 
 def prevent_hba1c(sex, age, tc, hdl, sbp, dm, smoking, bmi, egfr, bptreat, statin, hba1c) -> dict[str, float]:
@@ -11,14 +22,9 @@ def prevent_hba1c(sex, age, tc, hdl, sbp, dm, smoking, bmi, egfr, bptreat, stati
     R parity: AHAprevent::pred_risk_hba1c (10yr + 30yr).
     """
     if not validate_common_inputs(age, sex, sbp, dm, smoking, egfr):
-        return {
-            "prevent_hba1c_10yr_CVD": np.nan,
-            "prevent_hba1c_10yr_ASCVD": np.nan,
-            "prevent_hba1c_10yr_HF": np.nan,
-            "prevent_hba1c_30yr_CVD": np.nan,
-            "prevent_hba1c_30yr_ASCVD": np.nan,
-            "prevent_hba1c_30yr_HF": np.nan,
-        }
+        return _hba1c_nan()
+    if invalid_hba1c(hba1c):
+        return _hba1c_nan()
 
     can_cvd_ascvd = not (
         pd.isna(tc)

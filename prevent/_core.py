@@ -49,11 +49,36 @@ def adjust(uacr: float):
     # Mirrors AHAprevent::adjust(): floor UACR in [0, 0.1) to 0.1 before log().
     if pd.isna(uacr):
         return None
+    if uacr < 0:
+        return None
     if uacr >= 0.1:
         return uacr
     if 0 <= uacr < 0.1:
         return 0.1
     return None
+
+
+def invalid_uacr(uacr: float) -> bool:
+    """R parity: pred_risk_* post-check ``!is.na(uacr) & uacr < 0``."""
+    return not pd.isna(uacr) and uacr < 0
+
+
+def invalid_hba1c(hba1c: float) -> bool:
+    """R parity: pred_risk_* post-check ``!is.na(hba1c) & hba1c <= 0``."""
+    return not pd.isna(hba1c) and hba1c <= 0
+
+
+def invalid_sdi_decile(sdi: float) -> bool:
+    """R parity: SDI must be missing or an integer decile in [1, 10]."""
+    if pd.isna(sdi):
+        return False
+    try:
+        decile = float(sdi)
+    except (TypeError, ValueError):
+        return True
+    if decile != int(decile):
+        return True
+    return decile < 1 or decile > 10
 
 
 def to_float(x) -> float:

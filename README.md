@@ -388,14 +388,39 @@ and graceful degradation:
   are unaffected.
 - **Full-model extras.** Missing `UACR`, `HbA1c`, or `SDI` does **not**
   produce `NaN`; instead, the published missing-input offsets are added,
-  matching the R source.
+  matching the R source. Present but invalid values are rejected:
+  `UACR < 0`, `HbA1c ≤ 0`, or SDI decile outside **1–10** yield `NaN` for
+  the affected model(s) (UACR / HbA1c / SDI / Full), as in `AHAprevent`.
 
 ---
 
 ## Differences from the official calculator
 
-This module differs from the public AHA PREVENT online calculator in a few
-deliberate ways. Keep these in mind when comparing outputs:
+The live [PREVENT calculator](https://professional.heart.org/en/guidelines-and-statements/prevent-calculator)
+page embeds a `<ckm-risk-calculator>` widget that POSTs to
+`https://professional.heart.org/aha-service/PHDSearch/PreventCalculate`.
+Automated parity tests in `tests/test_aha_web_parity.py` call that same endpoint
+and compare all three 10-year outcomes (and 30-year when shown) to `pyprevent`.
+
+**Web API sex encoding** (differs from the R package):
+
+| `AHAprevent` / `pyprevent` `SEX` | AHA web `genderType` |
+| ---------------------------------- | -------------------- |
+| `0` = male                         | `2`                  |
+| `1` = female                       | `1`                  |
+
+The web UI selects one model per submission (Base, UACR-only, HbA1c-only,
+SDI-from-ZIP, or Full when multiple optionals are present). `compute_prevent`
+returns all five models at once.
+
+For manual checks:
+
+```bash
+python scripts/compare_aha_web.py
+pytest tests/test_aha_web_parity.py -v   # requires network
+```
+
+Other deliberate differences to keep in mind:
 
 1. **R-parity behavior.** This implementation follows the upstream `AHAprevent`
    R package: out-of-range inputs are rejected (produce `NaN`) rather than
@@ -403,7 +428,10 @@ deliberate ways. Keep these in mind when comparing outputs:
 2. **Treatment flags.** Use optional `BPTREAT` / `STATIN` columns for per-row
    values, or `bp_treat_default` / `statin_default` when those columns are absent.
 3. **SDI** is resolved from `sdi_series` when provided, otherwise from `ZIP`
-   via the bundled RGC ZCTA crosswalk.
+   via the bundled RGC ZCTA crosswalk (same source the web uses via
+   `/aha-service/PHDApi/GetSdiValueByZipcode` when a ZIP is entered).
+4. **PREVENT-Age and 30-year percentiles** are shown on the web for the Base
+   model only; `pyprevent` does not compute those auxiliary metrics yet.
 
 ---
 
@@ -431,6 +459,22 @@ Run them with:
 pip install -e ".[dev]"
 pytest
 python scripts/audit_coefficients.py  # skips if R source not found locally
+pytest tests/test_r_property.py -v    # 600+ row AHAprevent parity (needs R)
+pytest tests/test_aha_web_parity.py -v  # live official web API (needs network)
+```
+
+**R property tests** (`tests/test_r_property.py`) batch-score random and
+boundary inputs through both Python and `AHAprevent`, comparing all 30 output
+columns to `1e-9` percent. They require `Rscript` plus the `pyprevent-r` conda
+env (or set `PREVENT_RSCRIPT` / `PYPREVENT_R_ENV`). Tests are skipped when R is
+absent so default CI stays fast; run the full matrix locally or via
+`workflow_dispatch` on the `tests` workflow (job `r-property`).
+
+```bash
+bash scripts/r-env/setup.sh
+pytest tests/test_r_property.py -v
+# or score an ad-hoc CSV:
+Rscript scripts/score_cases.R my_cases.csv my_scores.csv
 ```
 
 Set `PREVENT_R_SOURCE` to point at `AHA_prevent_equations.R` when the audit
@@ -478,9 +522,15 @@ pyprevent/
 │   ├── test_prevent.py              # Parity + contract tests
 │   ├── test_prevent30.py            # Age / horizon masks
 │   ├── test_r_parity.py             # Fixture-based R comparison
+│   ├── test_r_property.py           # Random + boundary AHAprevent parity
+│   ├── test_aha_web_parity.py       # Live AHA PreventCalculate API parity
+│   ├── r_harness.py                 # R batch scorer helpers
+│   ├── aha_web.py                   # AHA web API client for tests
 │   └── test_package.py              # Bundled data + output schema
 ├── scripts/
 │   ├── audit_coefficients.py
+│   ├── score_cases.R                # Batch AHAprevent scorer for property tests
+│   ├── compare_aha_web.py           # CLI: pyprevent vs official web API
 │   ├── fill_r_reference.py          # Python regression fixture (CI default)
 │   └── generate_r_reference.R       # Upstream AHAprevent golden (needs R)
 ├── .github/workflows/test.yml
