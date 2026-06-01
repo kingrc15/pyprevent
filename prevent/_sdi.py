@@ -3,7 +3,18 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ._core import mmol_conversion, sdicat, sigmoid_pct, validate_common_inputs
+from ._core import invalid_sdi_decile, mmol_conversion, sdicat, sigmoid_pct, validate_common_inputs
+
+
+def _sdi_nan() -> dict[str, float]:
+    return {
+        "prevent_sdi_10yr_CVD": np.nan,
+        "prevent_sdi_10yr_ASCVD": np.nan,
+        "prevent_sdi_10yr_HF": np.nan,
+        "prevent_sdi_30yr_CVD": np.nan,
+        "prevent_sdi_30yr_ASCVD": np.nan,
+        "prevent_sdi_30yr_HF": np.nan,
+    }
 
 
 def prevent_sdi(sex, age, tc, hdl, sbp, dm, smoking, bmi, egfr, bptreat, statin, sdi) -> dict[str, float]:
@@ -11,14 +22,9 @@ def prevent_sdi(sex, age, tc, hdl, sbp, dm, smoking, bmi, egfr, bptreat, statin,
     R parity: AHAprevent::pred_risk_sdi (10yr + 30yr).
     """
     if not validate_common_inputs(age, sex, sbp, dm, smoking, egfr):
-        return {
-            "prevent_sdi_10yr_CVD": np.nan,
-            "prevent_sdi_10yr_ASCVD": np.nan,
-            "prevent_sdi_10yr_HF": np.nan,
-            "prevent_sdi_30yr_CVD": np.nan,
-            "prevent_sdi_30yr_ASCVD": np.nan,
-            "prevent_sdi_30yr_HF": np.nan,
-        }
+        return _sdi_nan()
+    if invalid_sdi_decile(sdi):
+        return _sdi_nan()
 
     can_cvd_ascvd = not (
         pd.isna(tc)

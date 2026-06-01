@@ -59,3 +59,7 @@ prevent = ["data/*.csv", "data/*.md"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+markers = [
+    "r_parity: requires Rscript and AHAprevent (see scripts/r-env/)",
+    "aha_web: live AHA PreventCalculate API (network)",
+]

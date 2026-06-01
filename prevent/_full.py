@@ -5,20 +5,35 @@ import math
 import numpy as np
 import pandas as pd
 
-from ._core import adjust, mmol_conversion, sdicat, sigmoid_pct, validate_common_inputs
+from ._core import (
+    adjust,
+    invalid_hba1c,
+    invalid_sdi_decile,
+    invalid_uacr,
+    mmol_conversion,
+    sdicat,
+    sigmoid_pct,
+    validate_common_inputs,
+)
+
+
+def _full_nan() -> dict[str, float]:
+    return {
+        "prevent_full_10yr_CVD": np.nan,
+        "prevent_full_10yr_ASCVD": np.nan,
+        "prevent_full_10yr_HF": np.nan,
+        "prevent_full_30yr_CVD": np.nan,
+        "prevent_full_30yr_ASCVD": np.nan,
+        "prevent_full_30yr_HF": np.nan,
+    }
 
 
 def prevent_full(sex, age, tc, hdl, sbp, dm, smoking, bmi, egfr, bptreat, statin, uacr, hba1c, sdi) -> dict[str, float]:
     """R parity: AHAprevent::pred_risk_full (10yr + 30yr)."""
     if not validate_common_inputs(age, sex, sbp, dm, smoking, egfr):
-        return {
-            "prevent_full_10yr_CVD": np.nan,
-            "prevent_full_10yr_ASCVD": np.nan,
-            "prevent_full_10yr_HF": np.nan,
-            "prevent_full_30yr_CVD": np.nan,
-            "prevent_full_30yr_ASCVD": np.nan,
-            "prevent_full_30yr_HF": np.nan,
-        }
+        return _full_nan()
+    if invalid_uacr(uacr) or invalid_hba1c(hba1c) or invalid_sdi_decile(sdi):
+        return _full_nan()
 
     can_cvd_ascvd = not (
         pd.isna(tc)

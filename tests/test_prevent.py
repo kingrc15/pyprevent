@@ -166,12 +166,37 @@ def test_missing_age_yields_all_nan():
         assert pd.isna(out[col].iloc[0]), f"expected NaN for {col}"
 
 
-def test_age_out_of_range_is_silently_clipped():
+def test_age_out_of_range_yields_nan_not_clipped():
     """
     R parity behavior: out-of-range inputs are rejected (NA), not clipped.
     """
     out_low = compute_prevent10(_row(AGE=20), bp_treat_default=0, statin_default=0)
     assert pd.isna(out_low["PREVENT10_CVD_BASIC_PCT"].iloc[0])
+
+
+def test_invalid_hba1c_blocks_full_and_hba1c_models():
+    """R parity: hba1c <= 0 invalidates Full and HbA1c models (all outcomes NA)."""
+    out = compute_prevent(_row(HBA1C=0, UACR=10), sdi_series=pd.Series([5]))
+    for col in out.columns:
+        if "_HBA1C_" in col or "_FULL_" in col:
+            assert pd.isna(out[col].iloc[0]), col
+
+
+def test_invalid_uacr_blocks_uacr_and_full_without_crash():
+    """R parity: uacr < 0 invalidates UACR and Full models; must not raise."""
+    out = compute_prevent(_row(UACR=-1, HBA1C=8), sdi_series=pd.Series([5]))
+    for col in out.columns:
+        if "_UACR_" in col or "_FULL_" in col:
+            assert pd.isna(out[col].iloc[0]), col
+    assert not pd.isna(out["PREVENT10_CVD_BASE_PCT"].iloc[0])
+
+
+def test_invalid_sdi_decile_blocks_sdi_and_full_models():
+    """R parity: SDI outside 1–10 invalidates SDI and Full models."""
+    out = compute_prevent(_row(HBA1C=8, UACR=10), sdi_series=pd.Series([11]))
+    for col in out.columns:
+        if "_SDI_" in col or "_FULL_" in col:
+            assert pd.isna(out[col].iloc[0]), col
 
 
 def test_bp_treat_none_blocks_outputs():
